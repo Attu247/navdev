@@ -1,0 +1,58 @@
+from ultralytics import YOLO
+from gtts import gTTS
+import os
+import google.generativeai as genai
+
+# Load YOLO model
+model = YOLO('yolov8n.pt')  # Load pretrained YOLOv8 model
+
+# Capture an image from the Raspberry Pi Camera
+camera_image_path = '/home/derpzyz/captured_image.jpg'
+os.system(f"libcamera-still -o {camera_image_path} --nopreview")
+
+# Run YOLO detection
+results = model(camera_image_path)  # Predict on the captured image
+
+# Extract predictions and generate a description
+detected_objects = []
+for result in results:
+    for obj in result.boxes:
+        label = result.names[int(obj.cls)]  # Get the class label
+        confidence = float(obj.conf)  # Convert confidence to a float
+        detected_objects.append(f"{label} ({confidence:.2f})")  # Format as a string
+
+# Combine results into a text description
+if detected_objects:
+    description = "Detected: " + ", ".join(detected_objects)
+else:
+    description = "No objects detected in the scene."
+
+# Gemini API key (set your actual key here)
+gem_api_key = "YOUR_GEMINI_API_KEY"
+
+# Configure Gemini API
+genai.configure(api_key=gem_api_key)
+
+# Upload the captured image for analysis
+sample_file = genai.upload_file(path=camera_image_path, display_name="sidewalk")
+print(f"Uploaded file '{sample_file.display_name}' as: {sample_file.uri}")
+
+# Define the prompt for Gemini (analysis description)
+gem_prompt = """
+Act as a Safety Inspector. Analyze the visual scene and provide a clear, factual description with a focus on identifying potential hazards or obstacles that could impact someone walking through the area. Use environmental clues to determine the status of vehicles and assess the surrounding conditions. Offer recommendations that are practical and relevant for the person walking, such as cautioning them about specific hazards they can avoid or navigate around. Avoid suggestions that require action beyond what a pedestrian can do while walking, like maintenance or drainage improvements. Assign probabilities to uncertain elements and note any potential dangers with clear guidance on how to avoid them. At the end of your analysis, provide a concise text-to-speech summary that includes all the key points. This summary should be clear, actionable, and relevant to the pedestrian navigating the scene. Make your analysis your self, and your output should only be the text to speech. The text-to-speech as I stated should be concise, and only the utmost important information.
+"""
+
+# Call Gemini API to generate content based on the analysis
+model = genai.GenerativeModel("gemini-1.5-flash")
+response = model.generate_content([sample_file, gem_prompt])
+
+# Print Gemini API response
+print(response.text)
+
+# Convert the Gemini response to speech
+tts = gTTS(text=response.text, lang='en')
+speech_output_path = '/home/derpzyz/navigation_output.mp3'
+tts.save(speech_output_path)
+
+# Play the speech output
+os.system(f"mpg321 {speech_output_path}")
