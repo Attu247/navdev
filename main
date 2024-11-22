@@ -1,0 +1,35 @@
+from ultralytics import YOLO
+from gtts import gTTS
+import os
+
+# Load YOLO model
+model = YOLO('yolov8n.pt')  # Load pretrained YOLOv8 model
+
+# Capture an image from the Raspberry Pi Camera
+camera_image_path = '/home/derpzyz/captured_image.jpg'
+os.system(f"libcamera-still -o {camera_image_path} --nopreview")
+
+# Run YOLO detection
+results = model(camera_image_path)  # Predict on the captured image
+
+# Extract predictions and generate a description
+detected_objects = []
+for result in results:
+    for obj in result.boxes:
+        label = result.names[int(obj.cls)]
+        confidence = obj.conf
+        detected_objects.append(f"{label} ({confidence:.2f})")
+
+# Combine results into a text description
+if detected_objects:
+    description = "Detected: " + ", ".join(detected_objects)
+else:
+    description = "No objects detected in the scene."
+
+# Convert description to speech
+tts = gTTS(text=description, lang='en')
+speech_output_path = '/home/derpzyz/navigation_output.mp3'
+tts.save(speech_output_path)
+
+# Play the speech output
+os.system(f"mpg321 {speech_output_path}")
