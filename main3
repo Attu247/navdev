@@ -28,7 +28,7 @@ else:
     description = "No objects detected in the scene."
 
 # Gemini API key (set your actual key here)
-gem_api_key = "YOUR_GEMINI_API_KEY"
+gem_api_key = "AIzaSyC_Fe1avLOL7x-_B08A4PKaOHkSh8DUbXI"
 
 # Configure Gemini API
 genai.configure(api_key=gem_api_key)
