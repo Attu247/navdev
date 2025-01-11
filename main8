@@ -1,0 +1,88 @@
+import RPi.GPIO as GPIO
+import os
+from ultralytics import YOLO
+from gtts import gTTS
+import google.generativeai as genai
+import time
+
+# GPIO setup
+button_pin = 17  # Change this to the GPIO pin where your button is connected
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)  # Button setup with pull-up resistor
+
+# Load YOLO model
+model = YOLO("yolov8n.pt")  # Ensure this model file is in your project directory
+
+# Configure Gemini API (replace with your API key)
+gem_api_key = "AIzaSyC_Fe1avLOL7x-_B08A4PKaOHkSh8DUbXI"  # Replace with your actual Gemini API key
+genai.configure(api_key=gem_api_key)
+
+# Function to capture and analyze image
+def capture_and_analyze():
+    camera_image_path = '/home/derpzyz/captured_image.jpg'
+    
+    # Capture an image from the Raspberry Pi Camera
+    os.system(f"libcamera-still -o {camera_image_path} --nopreview")
+    
+    # Ensure the image was captured
+    if not os.path.exists(camera_image_path):
+        print("Error: Image not captured.")
+        return "Error capturing image."
+    
+    print(f"Image captured successfully: {camera_image_path}")
+    
+    # Run YOLO detection on the image
+    results = model(camera_image_path)  # Predict on the captured image
+    
+    # Extract predictions and generate a description
+    detected_objects = []
+    for result in results:
+        for obj in result.boxes:
+            label = result.names[int(obj.cls)]  # Get the class label
+            confidence = float(obj.conf)  # Convert confidence to a float
+            detected_objects.append(f"{label} ({confidence:.2f})")  # Format as a string
+
+    # Combine results into a text description
+    if detected_objects:
+        description = "Detected: " + ", ".join(detected_objects)
+    else:
+        description = "No objects detected in the scene."
+    
+    # Upload the captured image for analysis to Gemini
+    sample_file = genai.upload_file(path=camera_image_path, display_name="sidewalk")
+    
+    # Define the prompt for Gemini (you can modify this prompt to suit your needs)
+    gem_prompt = """
+    Act as a Safety Inspector. Analyze the visual scene and provide a clear, factual description with a focus on identifying potential hazards or obstacles that could impact someone walking through the area.
+    """
+    
+    # Call Gemini API to generate content based on the analysis
+    gem_model = genai.GenerativeModel("gemini-1.5-flash")
+    response = gem_model.generate_content([sample_file, gem_prompt])
+
+    # Convert the Gemini response to speech
+    tts = gTTS(text=response.text, lang='en')
+    speech_output_path = '/home/derpzyz/navigation_output.mp3'
+    tts.save(speech_output_path)
+
+    # Play the speech output through AUX
+    os.system(f"mpg321 {speech_output_path}")
+    
+    return description
+
+# Main program loop
+try:
+    print("Waiting for button press...")
+    while True:
+        input_state = GPIO.input(button_pin)
+        if input_state == GPIO.LOW:  # Button is pressed (active-low)
+            print("Button pressed, capturing image and processing...")
+            result = capture_and_analyze()
+            print(result)
+            time.sleep(1)  # Debounce the button to avoid multiple triggers
+        time.sleep(0.1)  # Check button every 100ms
+
+except KeyboardInterrupt:
+    print("Program interrupted. Cleaning up...")
+finally:
+    GPIO.cleanup()  # Clean up GPIO on exit
