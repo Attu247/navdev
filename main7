@@ -1,0 +1,54 @@
+import cv2
+import os
+from ultralytics import YOLO
+from gtts import gTTS
+import google.generativeai as genai
+
+# Function to capture and analyze image
+def capture_and_analyze():
+    camera_image_path = '/home/derpzyz/captured_image.jpg'
+    
+    # Capture an image from the Raspberry Pi Camera
+    os.system(f"libcamera-still -o {camera_image_path} --nopreview")
+    
+    # Check if the image was captured successfully
+    if os.path.exists(camera_image_path):
+        print(f"Image captured successfully: {camera_image_path}")
+    else:
+        print("Error: Image not captured.")
+        return "Error capturing image."
+
+    # Read the captured image to ensure it's correctly loaded
+    image = cv2.imread(camera_image_path)
+    if image is None:
+        print("Error: Unable to read the captured image.")
+        return "Error reading image."
+
+    print("Image read successfully.")
+
+    # Run YOLO detection on the image
+    results = model(camera_image_path)  # Predict on the captured image
+    
+    # Extract predictions and generate a description
+    detected_objects = []
+    for result in results:
+        for obj in result.boxes:
+            label = result.names[int(obj.cls)]  # Get the class label
+            confidence = float(obj.conf)  # Convert confidence to a float
+            detected_objects.append(f"{label} ({confidence:.2f})")  # Format as a string
+
+    # Combine results into a text description
+    if detected_objects:
+        description = "Detected: " + ", ".join(detected_objects)
+    else:
+        description = "No objects detected in the scene."
+    
+    # Optionally, save the edge detection result
+    edges = cv2.Canny(image, threshold1=100, threshold2=200)
+    cv2.imwrite("/home/derpzyz/edges_output.jpg", edges)  # Save edge-detected image
+    print("Edge detection complete.")
+    
+    return description
+
+# Test the function
+print(capture_and_analyze())
