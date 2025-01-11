@@ -1,0 +1,102 @@
+import RPi.GPIO as GPIO
+from pad4pi import rpi_gpio
+import time
+import os
+from ultralytics import YOLO
+from gtts import gTTS
+import google.generativeai as genai
+
+# Initialize Flask app (or your original code for detection)
+model = YOLO('yolov8n.pt')  # Load pretrained YOLOv8 model
+
+# Configure audio output to AUX
+os.system("amixer cset numid=3 1")  # Set audio output to AUX (3.5mm jack)
+
+# Gemini API key (set your actual key here)
+gem_api_key = "AIzaSyC_Fe1avLOL7x-_B08A4PKaOHkSh8DUbXI"
+
+# Configure Gemini API
+genai.configure(api_key=gem_api_key)
+
+# Function to capture and analyze image
+def capture_and_analyze():
+    camera_image_path = '/home/derpzyz/captured_image.jpg'
+    
+    # Capture an image from the Raspberry Pi Camera
+    os.system(f"libcamera-still -o {camera_image_path} --nopreview")
+    
+    # Run YOLO detection
+    results = model(camera_image_path)  # Predict on the captured image
+    
+    # Extract predictions and generate a description
+    detected_objects = []
+    for result in results:
+        for obj in result.boxes:
+            label = result.names[int(obj.cls)]  # Get the class label
+            confidence = float(obj.conf)  # Convert confidence to a float
+            detected_objects.append(f"{label} ({confidence:.2f})")  # Format as a string
+
+    # Combine results into a text description
+    if detected_objects:
+        description = "Detected: " + ", ".join(detected_objects)
+    else:
+        description = "No objects detected in the scene."
+
+    # Upload the captured image for analysis
+    sample_file = genai.upload_file(path=camera_image_path, display_name="sidewalk")
+    
+    # Define the prompt for Gemini (analysis description)
+    gem_prompt = """
+    Act as a Safety Inspector. Analyze the visual scene and provide a clear, factual description with a focus on identifying potential hazards or obstacles that could impact someone walking through the area...
+    """
+    
+    # Call Gemini API to generate content based on the analysis
+    gem_model = genai.GenerativeModel("gemini-1.5-flash")
+    response = gem_model.generate_content([sample_file, gem_prompt])
+
+    # Convert the Gemini response to speech
+    tts = gTTS(text=response.text, lang='en')
+    speech_output_path = '/home/derpzyz/navigation_output.mp3'
+    tts.save(speech_output_path)
+
+    # Play the speech output through AUX
+    os.system(f"mpg321 {speech_output_path}")
+    
+    return description
+
+# Define the keypad configuration (rows and columns)
+KEYPAD = [
+    ["1", "2", "3", "A"],
+    ["4", "5", "6", "B"],
+    ["7", "8", "9", "C"],
+    ["*", "0", "#", "D"]
+]
+
+# Define the GPIO pins for rows and columns (use the pins you provided)
+ROW_PINS = [19, 21, 23, 25]  # Adjusted to your requested pins
+COL_PINS = [9, 11, 13, 15]
+
+# Set up the GPIO pins
+GPIO.setmode(GPIO.BCM)  # BCM GPIO numbering
+gpio_input = rpi_gpio.Keypad(keypad=KEYPAD, row_pins=ROW_PINS, col_pins=COL_PINS)
+
+# Function to handle button presses
+def on_key_pressed(key):
+    print(f"Key pressed: {key}")
+    # Trigger the capture and analyze code here when any key is pressed
+    print("Starting analysis...")
+    capture_and_analyze()
+
+# Main loop to detect key presses
+try:
+    print("Waiting for key press...")
+    while True:
+        key = gpio_input.get_key()
+        if key:
+            on_key_pressed(key)
+        time.sleep(0.1)  # Small delay to prevent overloading the CPU
+
+except KeyboardInterrupt:
+    print("Program interrupted.")
+finally:
+    GPIO.cleanup()  # Clean up GPIO on exit
